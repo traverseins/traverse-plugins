@@ -1,0 +1,18 @@
+{
+  "$schema": "https://www.schemastore.org/claude-code-marketplace.json",
+  "name": "traverse-plugins",
+  "owner": {
+    "name": "Traverse",
+    "email": "support@traverseins.com"
+  },
+  "metadata": {
+    "description": "Traverse plugins for Claude: insurance placements engagements."
+  },
+  "plugins": [
+    {
+      "name": "traverse-engagement",
+      "source": "./plugins/traverse-engagement",
+      "description": "Guide a broker through a Traverse insurance placements engagement: gather client details, analyze documents against an agency coverage benchmark, upload supporting files, submit the engagement, and track its submissions, quotes, and tasks."
+    }
+  ]
+}

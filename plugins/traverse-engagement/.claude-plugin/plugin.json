@@ -1,0 +1,13 @@
+{
+  "$schema": "https://www.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "traverse-engagement",
+  "description": "Guide a broker through a Traverse insurance placements engagement: gather client details, analyze documents against an agency coverage benchmark, upload supporting files, submit the engagement, and track its submissions, quotes, and tasks.",
+  "version": "1.15.1",
+  "author": {
+    "name": "Traverse",
+    "email": "support@traverseins.com"
+  },
+  "homepage": "https://www.traverseins.com",
+  "repository": "https://github.com/traverseins/traverse-plugins",
+  "keywords": ["traverse", "engagement", "placements", "upload", "status", "mcp"]
+}

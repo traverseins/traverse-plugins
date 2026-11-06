@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "traverse-engagements": {
+      "type": "http",
+      "url": "${TRAVERSE_BASE_URL:-https://api.traverse-sys.com/mcp_engagements}",
+      "headers": {
+        "X-Traverse-API-Key": "${TRAVERSE_API_KEY}"
+      }
+    },
+    "traverse-engagement-files": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/dist/index.js"]
+    }
+  }
+}

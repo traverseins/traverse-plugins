@@ -1,0 +1,25 @@
+{
+  "name": "traverse-engagement-files",
+  "version": "1.2.0",
+  "private": true,
+  "description": "Local stdio MCP server for the traverse-engagement plugin: stage document sources and stream bytes to presigned S3 targets (single + multipart).",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/index.js",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.23.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}

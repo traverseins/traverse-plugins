@@ -1,5 +1,5 @@
 ---
-description: Upload a supporting document to Traverse. Stage the source (local file, share/download URL, or a small connector file relayed as base64) with the local file mover, then get_upload_target → upload the bytes (single PUT or multipart parts) → upload_complete. Use when uploading client documents or a coverage benchmark for a Traverse engagement, or when handling stage_file / get_upload_target / upload_file / upload_complete. Also defines the broker's approval of the upload list that `create-engagement` and `prep-for-portals` run before a batch, and how a file is added later: one the broker left out, or any file for an engagement that is already submitted.
+description: Upload a supporting document to Traverse. Stage the source (a local file, or a small connector file relayed as base64) with the local file mover, then get_upload_target → upload the bytes (single PUT or multipart parts) → upload_complete. Use when uploading client documents or a coverage benchmark for a Traverse engagement, or when handling stage_file / get_upload_target / upload_file / upload_complete. Also defines the broker's approval of the upload list that `create-engagement` and `prep-for-portals` run before a batch, and how a file is added later: one the broker left out, or any file for an engagement that is already submitted.
 ---
 
 # Traverse document upload
@@ -100,12 +100,15 @@ with exactly one source:
 - **Local file** — `stage_file { path: "/abs/path/loss-run.pdf" }`. Referenced
   in place (no copy). You may skip staging if you already know the exact
   `sizeBytes` and `contentType` of a local path. **This is the preferred path.**
-- **A share or download URL** — `stage_file { url: "https://…" }`. Streamed to a
-  temp file (http/https only).
 - **A file from a connected share (Google Drive, OneDrive, …)** — see the two
   cases below.
 
 `stage_file` returns `{ stagedPath, sizeBytes, sha256, contentType, filename }`.
+`filename` is always a bare file name: `stage_file` drops any folder path from
+it.
+
+There is no URL source. `stage_file` doesn't download anything, so a share or
+download link has to be saved to disk first and staged by `path`.
 
 > **Connector files: pull to disk first (Cowork), base64 only as a last resort.**
 > If you have a local working directory (e.g. a Cowork session, or the project dir
@@ -117,7 +120,7 @@ with exactly one source:
 > `stage_file { base64: "<...>", filename: "policy.pdf" }` (chunk large content
 > with `appendTo` — but base64 travels through the model context, so it is for a
 > few MiB at most). A large connector file with no disk to stage into has no good
-> path: ask the broker to save a local copy or provide a direct download URL.
+> path: ask the broker to save a local copy.
 
 > **Confirmation gate (download from a connected share):** before pulling a file
 > out of a broker's Drive/OneDrive, confirm with them which file(s) to take. Do

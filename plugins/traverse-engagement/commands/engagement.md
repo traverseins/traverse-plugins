@@ -34,8 +34,8 @@ Work through these steps, pausing for input where needed:
 4. **Review gate.** Present the recommendations and notes (plus broker and
    `agencyOrgId` on a service key); get explicit broker approval or edits. Do
    not proceed without sign-off.
-5. **Upload documents.** For each file: `stage_file` (local path, share URL, or
-   a small connector file relayed as base64) → `get_upload_target` (always pass
+5. **Upload documents.** For each file: `stage_file` (local path, or a small
+   connector file relayed as base64) → `get_upload_target` (always pass
    `sizeBytes`) → `upload_file` (single `uploadUrl` or multipart `parts`) →
    `upload_complete` (with `parts` for multipart). Collect each `documentId`.
 6. **Submit.** Call `submit_engagement` with `broker` (with `agencyOrgId` on

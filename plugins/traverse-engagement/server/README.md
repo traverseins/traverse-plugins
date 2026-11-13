@@ -24,11 +24,20 @@ server just stages a source and streams its bytes to the presigned S3 target.
 - **`stage_file`** — resolve a source to a real file on disk and report
   `{stagedPath, sizeBytes, sha256, contentType, filename}`. Exactly one of:
   - `path` — an existing local file (referenced in place, no copy).
-  - `url` — an http(s) link streamed to a temp file.
   - `base64` — inline bytes (small files only; chunk with `appendTo`).
+
+  There is no URL source: the server makes no outbound GET requests. `filename`
+  is reduced to a bare file name (any `/` or `\` folder path is dropped), and
+  `appendTo` must resolve, through any symlink, to a file inside the staging
+  root.
 - **`upload_file`** — stream a staged file to the presigned target. Exactly one
   of `uploadUrl` (single) or `parts:[{partNumber,url}]` (multipart). Returns the
-  ETag(s) to hand to `upload_complete`.
+  ETag(s) to hand to `upload_complete`. Targets must be https URLs on Traverse's
+  S3 document buckets (`src/upload-hosts.ts`), presigned with
+  `x-amz-expected-bucket-owner` naming Traverse's staging or production AWS
+  account, so S3 itself refuses a lookalike bucket owned by anyone else.
+  Anything else is refused before a byte is sent, and redirects are never
+  followed.
 
 ## Build & test
 

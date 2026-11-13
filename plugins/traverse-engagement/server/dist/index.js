@@ -21104,7 +21104,6 @@ var import_promises = require("node:fs/promises");
 var import_node_crypto = require("node:crypto");
 var import_node_os = require("node:os");
 var import_node_path = require("node:path");
-var import_node_stream = require("node:stream");
 var import_promises2 = require("node:stream/promises");
 function stagingRoot() {
   return process.env.TRAVERSE_STAGING_ROOT || (0, import_node_path.join)((0, import_node_os.tmpdir)(), "traverse-engagement-staging");
@@ -21143,12 +21142,39 @@ async function hashFile(path) {
   });
   return { sha256: hash.digest("hex"), sizeBytes };
 }
-function assertInsideStagingRoot(path) {
-  const root = (0, import_node_path.resolve)(stagingRoot());
-  const target = (0, import_node_path.resolve)(path);
-  if (target !== root && !target.startsWith(root + import_node_path.sep)) {
-    throw new Error("appendTo must reference a file inside the staging root");
+var MAX_FILENAME_BYTES = 200;
+function safeFilename(raw) {
+  const last = raw.split(/[\\/]/).pop() ?? "";
+  let name = last.replace(/[\u0000-\u001f\u007f]/g, "").replace(/[<>:"|?*]/g, "_").trim();
+  if (name === "" || name === "." || name === "..") {
+    throw new Error("filename must be a file name, not a folder path");
   }
+  if (Buffer.byteLength(name) > MAX_FILENAME_BYTES) {
+    const dot = name.lastIndexOf(".");
+    const ext = dot > 0 && name.length - dot <= 16 ? name.slice(dot) : "";
+    let stem = ext ? name.slice(0, dot) : name;
+    while (Buffer.byteLength(stem + ext) > MAX_FILENAME_BYTES) stem = stem.slice(0, -1);
+    name = stem + ext;
+  }
+  return name;
+}
+function isInside(parent, target) {
+  return target.startsWith(parent + import_node_path.sep);
+}
+async function resolveAppendTarget(path) {
+  const err = new Error("appendTo must reference a file inside the staging root");
+  let root;
+  let target;
+  try {
+    root = await (0, import_promises.realpath)(stagingRoot());
+    target = await (0, import_promises.realpath)(path);
+  } catch {
+    throw err;
+  }
+  if (!isInside(root, target)) throw err;
+  const s = await (0, import_promises.lstat)(target);
+  if (!s.isFile()) throw err;
+  return target;
 }
 async function newStagingDir() {
   const dir = (0, import_node_path.join)(stagingRoot(), (0, import_node_crypto.randomUUID)());
@@ -21176,65 +21202,40 @@ async function cleanupStaging(maxAgeMs) {
   );
 }
 async function stageFile(input) {
-  const sources = [input.path, input.url, input.base64].filter((v) => v !== void 0);
+  const sources = [input.path, input.base64].filter((v) => v !== void 0);
   if (sources.length !== 1) {
-    throw new Error("provide exactly one of: path, url, base64");
+    throw new Error("provide exactly one of: path, base64");
   }
+  const requestedName = input.filename !== void 0 ? safeFilename(input.filename) : void 0;
   if (input.path !== void 0) {
     const s = await (0, import_promises.stat)(input.path);
     if (!s.isFile()) throw new Error(`not a file: ${input.path}`);
     const { sha256: sha2562, sizeBytes: sizeBytes2 } = await hashFile(input.path);
-    const filename2 = input.filename ?? (0, import_node_path.basename)(input.path);
+    const filename2 = requestedName ?? safeFilename((0, import_node_path.basename)(input.path));
     return { stagedPath: input.path, sizeBytes: sizeBytes2, sha256: sha2562, contentType: contentTypeFromName(filename2), filename: filename2 };
   }
-  if (input.base64 !== void 0) {
-    const bytes = Buffer.from(input.base64, "base64");
-    let stagedPath2;
-    let filename2;
-    if (input.appendTo !== void 0) {
-      assertInsideStagingRoot(input.appendTo);
-      stagedPath2 = input.appendTo;
-      filename2 = input.filename ?? (0, import_node_path.basename)(stagedPath2);
-      await (0, import_promises.appendFile)(stagedPath2, bytes);
-    } else {
-      if (!input.filename) throw new Error("filename is required for base64 staging");
-      const dir2 = await newStagingDir();
-      filename2 = input.filename;
-      stagedPath2 = (0, import_node_path.join)(dir2, filename2);
-      await (0, import_promises.appendFile)(stagedPath2, bytes);
+  const bytes = Buffer.from(input.base64, "base64");
+  let stagedPath;
+  let filename;
+  if (input.appendTo !== void 0) {
+    const target = await resolveAppendTarget(input.appendTo);
+    stagedPath = input.appendTo;
+    filename = requestedName ?? (0, import_node_path.basename)(target);
+    await (0, import_promises.appendFile)(target, bytes);
+    const { sha256: sha2562, sizeBytes: sizeBytes2 } = await hashFile(target);
+    return { stagedPath, sizeBytes: sizeBytes2, sha256: sha2562, contentType: contentTypeFromName(filename), filename };
+  } else {
+    if (!requestedName) throw new Error("filename is required for base64 staging");
+    const dir = await newStagingDir();
+    filename = requestedName;
+    stagedPath = (0, import_node_path.join)(dir, filename);
+    if (!isInside((0, import_node_path.resolve)(dir), (0, import_node_path.resolve)(stagedPath))) {
+      throw new Error("filename must be a file name, not a folder path");
     }
-    const { sha256: sha2562, sizeBytes: sizeBytes2 } = await hashFile(stagedPath2);
-    return { stagedPath: stagedPath2, sizeBytes: sizeBytes2, sha256: sha2562, contentType: contentTypeFromName(filename2), filename: filename2 };
+    await (0, import_promises.writeFile)(stagedPath, bytes, { flag: "wx" });
   }
-  const url = input.url;
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error("invalid url");
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("url must be http(s)");
-  }
-  const resp = await fetch(url);
-  if (!resp.ok || !resp.body) {
-    throw new Error(`failed to fetch url: HTTP ${resp.status}`);
-  }
-  const headerName = dispositionFilename(resp.headers.get("content-disposition"));
-  const filename = input.filename || headerName || (0, import_node_path.basename)(parsed.pathname) || "download";
-  const dir = await newStagingDir();
-  const stagedPath = (0, import_node_path.join)(dir, filename);
-  await (0, import_promises2.pipeline)(import_node_stream.Readable.fromWeb(resp.body), (0, import_node_fs.createWriteStream)(stagedPath));
   const { sha256, sizeBytes } = await hashFile(stagedPath);
-  const contentType = resp.headers.get("content-type")?.split(";")[0]?.trim() || contentTypeFromName(filename);
-  return { stagedPath, sizeBytes, sha256, contentType: contentType || null, filename };
-}
-function dispositionFilename(header) {
-  if (!header) return null;
-  const star = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(header);
-  if (star) return decodeURIComponent(star[1].replace(/"/g, "").trim());
-  const plain = /filename="?([^";]+)"?/i.exec(header);
-  return plain ? plain[1].trim() : null;
+  return { stagedPath, sizeBytes, sha256, contentType: contentTypeFromName(filename), filename };
 }
 
 // src/upload.ts
@@ -21259,6 +21260,43 @@ function redactMessage(message) {
   return message.replace(/https?:\/\/[^\s"'<>]+/g, (m) => redactUrl(m));
 }
 
+// src/upload-hosts.ts
+var TRAVERSE_BUCKET_OWNERS = Object.freeze(["348032170673", "273221485823"]);
+var REGIONAL_S3 = String.raw`\.s3(?:\.us-east-1|\.us-west-2)?\.amazonaws\.com`;
+var DEFAULT_UPLOAD_HOST_POLICY = Object.freeze({
+  allowedHosts: Object.freeze([
+    // Per-subscriber buckets created by the documents service.
+    new RegExp(String.raw`^(?:tr|vt)-[a-z0-9-]{1,48}${REGIONAL_S3}$`),
+    // Default buckets: production, then staging.
+    new RegExp(String.raw`^traverse-documents-service-production${REGIONAL_S3}$`),
+    new RegExp(String.raw`^tmp-documents-service-[a-z0-9]{1,20}${REGIONAL_S3}$`)
+  ]),
+  bucketOwners: TRAVERSE_BUCKET_OWNERS,
+  allowInsecureLoopback: false
+});
+var activePolicy = DEFAULT_UPLOAD_HOST_POLICY;
+var LOOPBACK_HOSTS = /* @__PURE__ */ new Set(["127.0.0.1", "[::1]", "localhost"]);
+function uploadUrlRejection(u, policy = activePolicy) {
+  const host = u.hostname.toLowerCase();
+  if (u.username || u.password) return "upload URL must not carry credentials";
+  if (policy.allowInsecureLoopback && LOOPBACK_HOSTS.has(host) && (u.protocol === "http:" || u.protocol === "https:")) {
+    return null;
+  }
+  if (u.protocol !== "https:") return "upload URL must use https";
+  if (u.port !== "" && u.port !== "443") return "upload URL must use the default https port";
+  if (!policy.allowedHosts.some((re) => re.test(host))) {
+    return "upload host not allowed: uploads go only to Traverse's document storage";
+  }
+  if (policy.bucketOwners) {
+    const owners = u.searchParams.getAll("x-amz-expected-bucket-owner");
+    const presigned = u.searchParams.get("X-Amz-Algorithm") === "AWS4-HMAC-SHA256" && u.searchParams.has("X-Amz-Signature");
+    if (!presigned || owners.length !== 1 || !policy.bucketOwners.includes(owners[0])) {
+      return "upload URL does not prove the bucket is Traverse's: uploads go only to Traverse's document storage";
+    }
+  }
+  return null;
+}
+
 // src/http.ts
 var UploadError = class extends Error {
   constructor(message, status, retryable) {
@@ -21281,8 +21319,9 @@ function putOnce(opts) {
       reject(new UploadError("invalid upload URL", void 0, false));
       return;
     }
-    if (u.protocol !== "https:" && u.protocol !== "http:") {
-      reject(new UploadError(`unsupported URL scheme: ${u.protocol}`, void 0, false));
+    const rejection = uploadUrlRejection(u);
+    if (rejection) {
+      reject(new UploadError(rejection, void 0, false));
       return;
     }
     const contentLength = opts.end - opts.start;
@@ -21366,6 +21405,17 @@ async function uploadFile(input) {
   if (hasSingle === hasParts) {
     return { ok: false, error: "provide exactly one of: uploadUrl (single) or parts (multipart)" };
   }
+  const targets = hasSingle ? [input.uploadUrl] : input.parts.map((p) => p.url);
+  for (const raw of targets) {
+    let u;
+    try {
+      u = new URL(raw);
+    } catch {
+      return { ok: false, error: "invalid upload URL" };
+    }
+    const rejection = uploadUrlRejection(u);
+    if (rejection) return { ok: false, error: rejection };
+  }
   let actualSize;
   try {
     const s = await (0, import_promises3.stat)(input.path);
@@ -21444,7 +21494,7 @@ function isPatchedNode(version2) {
 }
 
 // src/index.ts
-var VERSION = "1.2.0";
+var VERSION = "1.3.0";
 var STAGING_TTL_MS = 24 * 60 * 60 * 1e3;
 function log(msg) {
   process.stderr.write(`[traverse-engagement-files] ${msg}
@@ -21456,10 +21506,9 @@ function textResult(payload, isError = false) {
 var server = new McpServer({ name: "traverse-engagement-files", version: VERSION });
 server.tool(
   "stage_file",
-  "Resolve a document source to a real file on disk and report its size, sha256, and content type \u2014 always call this before get_upload_target unless you already have a local path and its byte size. Provide EXACTLY ONE of: path (an existing local file, referenced in place, no copy), url (an http(s) link streamed to a temp file \u2014 e.g. a share/download link), or base64 (raw bytes relayed inline; pass filename, and for large content split across calls using appendTo with the prior stagedPath). Returns {stagedPath, sizeBytes, sha256, contentType, filename}. Base64 relay is for SMALL files only (it flows through the model context); for a large connector file, obtain a real download URL or a local copy instead. Bytes never leave the local machine except the later upload to the presigned S3 target.",
+  "Resolve a document source to a real file on disk and report its size, sha256, and content type \u2014 always call this before get_upload_target unless you already have a local path and its byte size. Provide EXACTLY ONE of: path (an existing local file, referenced in place, no copy) or base64 (raw bytes relayed inline; pass filename, and for large content split across calls using appendTo with the prior stagedPath). There is no URL source: save a connector or web file to disk first, then stage it by path. filename is reduced to a bare file name (any folder path is dropped). Returns {stagedPath, sizeBytes, sha256, contentType, filename}. Base64 relay is for SMALL files only (it flows through the model context); for a large connector file, save a local copy instead. Bytes never leave the local machine except the later upload to Traverse's document storage.",
   {
     path: external_exports.string().optional(),
-    url: external_exports.string().optional(),
     base64: external_exports.string().optional(),
     filename: external_exports.string().optional(),
     appendTo: external_exports.string().optional()
@@ -21476,7 +21525,7 @@ server.tool(
 );
 server.tool(
   "upload_file",
-  "Stream a staged file's bytes to the presigned target from get_upload_target. Provide EXACTLY ONE of: uploadUrl (uploadKind 'single') or parts [{partNumber, url}] (uploadKind 'multipart'). contentType must equal what you passed to get_upload_target. Single returns {ok:true, mode:'single', etag, sizeBytes}; multipart returns {ok:true, mode:'multipart', sizeBytes, partSizeBytes, parts:[{partNumber, etag}]} \u2014 pass those parts verbatim (ETags keep their quotes) to upload_complete. On failure returns {ok:false, error, hint?}; a 403/expiry sets a hint to re-run get_upload_target for a fresh documentId and URLs. Presigned URLs and ETags are handled locally and never printed. URLs expire ~30 minutes after minting \u2014 upload promptly.",
+  "Stream a staged file's bytes to the presigned target from get_upload_target. Provide EXACTLY ONE of: uploadUrl (uploadKind 'single') or parts [{partNumber, url}] (uploadKind 'multipart'). contentType must equal what you passed to get_upload_target. Single returns {ok:true, mode:'single', etag, sizeBytes}; multipart returns {ok:true, mode:'multipart', sizeBytes, partSizeBytes, parts:[{partNumber, etag}]} \u2014 pass those parts verbatim (ETags keep their quotes) to upload_complete. On failure returns {ok:false, error, hint?}; a 403/expiry sets a hint to re-run get_upload_target for a fresh documentId and URLs. Only https URLs on Traverse's document storage (its S3 buckets, presigned with Traverse's AWS account as the expected bucket owner) are accepted; any other target is refused before a byte is sent. Presigned URLs and ETags are handled locally and never printed. URLs expire ~30 minutes after minting \u2014 upload promptly.",
   {
     path: external_exports.string(),
     contentType: external_exports.string(),
